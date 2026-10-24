@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 const PlanetScene = dynamic(() => import("./PlanetScene"), {
   ssr: false,
@@ -18,10 +18,17 @@ const planetOptions = {
 type PlanetProperty = keyof typeof planetOptions;
 type PlanetSelections = Record<PlanetProperty, number>;
 
-type PlanetConfiguration = {
-  schemaVersion: 1;
-  conditions: PlanetSelections;
+type SavedPlanet = {
+  id: number;
+  name: string;
+  temperature: number;
+  gravity: number;
+  atmosphere: number;
+  water: number;
+  createdAt: string;
 };
+
+const planetsApiUrl = "http://localhost:5269/api/planets";
 
 const initialSelections: PlanetSelections = {
   temperature: 50,
@@ -39,8 +46,14 @@ const optionLabels: Record<keyof PlanetSelections, string> = {
 
 export default function Home() {
   const [selections, setSelections] = useState<PlanetSelections>(initialSelections);
-  const [createdConfiguration, setCreatedConfiguration] = useState<PlanetConfiguration | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [planetName, setPlanetName] = useState("");
+  const [saveStatus, setSaveStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedPlanets, setSavedPlanets] = useState<SavedPlanet[]>([]);
+  const [isLoadingPlanets, setIsLoadingPlanets] = useState(true);
+  const [planetsError, setPlanetsError] = useState("");
+  const savingRef = useRef(false);
 
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -50,17 +63,113 @@ export default function Home() {
     return () => preference.removeEventListener("change", updateMotionPreference);
   }, []);
 
+  const fetchSavedPlanets = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch(planetsApiUrl, { signal });
+    if (!response.ok) {
+      throw new Error(`Could not load saved planets (HTTP ${response.status}).`);
+    }
+    const planets = (await response.json()) as SavedPlanet[];
+    if (!Array.isArray(planets)) {
+      throw new Error("The backend returned an unexpected planets response.");
+    }
+    return planets;
+  }, []);
+
+  function retryLoadSavedPlanets() {
+    setIsLoadingPlanets(true);
+    setPlanetsError("");
+    void fetchSavedPlanets()
+      .then(setSavedPlanets)
+      .catch((error: unknown) => {
+        setPlanetsError(error instanceof Error ? error.message : "Could not load saved planets.");
+      })
+      .finally(() => setIsLoadingPlanets(false));
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSavedPlanets(controller.signal)
+      .then(setSavedPlanets)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setPlanetsError(error instanceof Error ? error.message : "Could not load saved planets.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingPlanets(false);
+      });
+    return () => controller.abort();
+  }, [fetchSavedPlanets]);
+
   function selectionLabel(property: PlanetProperty, value: number) {
     const index = value < 34 ? 0 : value < 67 ? 1 : 2;
     return planetOptions[property][index];
   }
 
-  function createPlanetConfiguration() {
-    setCreatedConfiguration({
-      schemaVersion: 1,
-      conditions: { ...selections },
-    });
+
+  async function createPlanetConfiguration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingRef.current) return;
+
+    const name = planetName.trim();
+    if (!name) {
+      setSaveStatus("Please enter a planet name.");
+      return;
+    }
+    if (name.length > 60) {
+      setSaveStatus("Planet names must be 60 characters or fewer.");
+      return;
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveStatus("Saving planet…");
+
+    try {
+      const response = await fetch(planetsApiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, ...selections }),
+      });
+      const responseText = await response.text();
+      let responseBody: { name?: string; title?: string; detail?: string; errors?: Record<string, string[]> } | undefined;
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText) as typeof responseBody;
+        } catch {
+          // Use the HTTP status if the server does not return a JSON error body.
+        }
+      }
+
+      if (!response.ok) {
+        const validationErrors = responseBody?.errors
+          ? Object.values(responseBody.errors).flat().join(" ")
+          : "";
+        throw new Error(
+          validationErrors || responseBody?.detail || responseBody?.title ||
+          `The backend rejected the save (HTTP ${response.status}).`,
+        );
+      }
+
+      setPlanetName("");
+      setSaveStatus(`“${responseBody?.name ?? name}” saved successfully.`);
+      const refreshedPlanets = await fetchSavedPlanets();
+      setSavedPlanets(refreshedPlanets);
+      setPlanetsError("");
+    } catch (error) {
+      console.error("Could not save planet:", error);
+      const message = error instanceof Error ? error.message : "Unknown network error.";
+      setSaveStatus(
+        message === "Failed to fetch"
+          ? "Could not reach the backend. Confirm it is running at http://localhost:5269 and allows this frontend origin."
+          : message,
+      );
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   }
+
 
   function randomizePlanet() {
     const randomInRange = (minimum: number, maximum: number) =>
@@ -80,7 +189,7 @@ export default function Home() {
       atmosphere: randomInRange(world.atmosphere[0], world.atmosphere[1]),
       water: randomInRange(world.water[0], world.water[1]),
     });
-    setCreatedConfiguration(null);
+    setSaveStatus("");
   }
 
   return (
@@ -183,7 +292,6 @@ export default function Home() {
                   onChange={(event) => {
                     const nextValue = Number(event.currentTarget.value);
                     setSelections((current) => ({ ...current, [group]: nextValue }));
-                    setCreatedConfiguration(null);
                   }}
                   style={{ "--slider-progress": `${selections[group]}%` } as CSSProperties}
                 />
@@ -214,17 +322,88 @@ export default function Home() {
             </section>
 
             <div className="create-panel">
-              <button className="create-config-button" type="button" onClick={createPlanetConfiguration}>
-                Create a planet <span aria-hidden="true">↗</span>
-              </button>
-              {createdConfiguration && (
-                <div className="configuration-output" role="status">
-                  <p>Configuration prepared. No API request was sent.</p>
-                  <pre>{JSON.stringify(createdConfiguration, null, 2)}</pre>
-                </div>
-              )}
+              <form className="planet-save-form" onSubmit={createPlanetConfiguration}>
+                <label htmlFor="planet-name">Planet name</label>
+                <input
+                  id="planet-name"
+                  type="text"
+                  value={planetName}
+                  onChange={(event) => setPlanetName(event.target.value)}
+                  placeholder="e.g. Ocean World"
+                  minLength={1}
+                  maxLength={60}
+                  required
+                  disabled={isSaving}
+                  aria-describedby="save-status"
+                />
+                <button className="create-config-button" type="submit" disabled={isSaving}>
+                  {isSaving ? "Saving…" : "Create a planet"}
+                  <span aria-hidden="true">{isSaving ? "◌" : "↗"}</span>
+                </button>
+                <p
+                  className={`save-status${saveStatus && !isSaving && !saveStatus.includes("saved successfully") ? " is-error" : ""}`}
+                  id="save-status"
+                  role={saveStatus && !isSaving && !saveStatus.includes("saved successfully") ? "alert" : "status"}
+                  aria-live={saveStatus && !isSaving && !saveStatus.includes("saved successfully") ? "assertive" : "polite"}
+                >
+                  {saveStatus}
+                </p>
+              </form>
             </div>
           </div>
+        </section>
+
+        <section className="saved-planets-section" aria-labelledby="saved-planets-title">
+          <div className="saved-planets-heading">
+            <div>
+              <p className="eyebrow"><span /> YOUR EXPLORATION LOG</p>
+              <h2 id="saved-planets-title">My Planets</h2>
+            </div>
+            {!isLoadingPlanets && !planetsError && (
+              <span className="saved-planet-count">{savedPlanets.length.toString().padStart(2, "0")} WORLDS</span>
+            )}
+          </div>
+
+          {isLoadingPlanets ? (
+            <p className="saved-planets-message" role="status">Loading your saved planets…</p>
+          ) : planetsError ? (
+            <div className="saved-planets-message saved-planets-error" role="alert">
+              <p>{planetsError}</p>
+              <button className="utility-button" type="button" onClick={retryLoadSavedPlanets}>
+                Try again
+              </button>
+            </div>
+          ) : savedPlanets.length === 0 ? (
+            <p className="saved-planets-message">No planets saved yet. Create your first world above.</p>
+          ) : (
+            <div className="saved-planets-grid">
+              {savedPlanets.map((planet) => (
+                <article className="saved-planet-card" key={planet.id}>
+                  <div className="saved-planet-card-heading">
+                    <h3>{planet.name}</h3>
+                    <time dateTime={planet.createdAt}>
+                      {new Date(planet.createdAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </time>
+                  </div>
+                  <dl className="saved-planet-conditions">
+                    {(["temperature", "gravity", "atmosphere", "water"] as const).map((property) => (
+                      <div key={property}>
+                        <dt>{optionLabels[property]}</dt>
+                        <dd>
+                          {selectionLabel(property, planet[property])}
+                          <span>{planet[property].toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <footer className="page-footer">
