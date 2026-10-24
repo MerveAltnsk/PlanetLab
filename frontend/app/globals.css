@@ -216,6 +216,7 @@ a {
   display: grid;
   place-items: center;
   isolation: isolate;
+  background: radial-gradient(ellipse at 50% 48%, rgb(100 96 120 / 10%), transparent 57%);
 }
 
 .planet-canvas,
@@ -229,6 +230,12 @@ a {
 
 .planet-canvas {
   z-index: 0;
+}
+
+.planet-canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .planet-scene-loading {
@@ -598,11 +605,11 @@ a {
   z-index: 1;
   width: 76%;
   height: 23%;
-  border: 1px solid rgb(225 200 173 / 72%);
-  border-left-color: rgb(198 185 217 / 22%);
-  border-right-color: rgb(214 169 104 / 80%);
+  border: 1px solid rgb(225 200 173 / 38%);
+  border-left-color: rgb(198 185 217 / 12%);
+  border-right-color: rgb(214 169 104 / 43%);
   border-radius: 50%;
-  box-shadow: 0 0 14px rgb(214 169 104 / 10%);
+  box-shadow: 0 0 10px rgb(214 169 104 / 7%);
   transform: rotate(-24deg);
 }
 

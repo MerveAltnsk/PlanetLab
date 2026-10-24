@@ -46,6 +46,7 @@ const optionLabels: Record<keyof PlanetSelections, string> = {
 
 export default function Home() {
   const [selections, setSelections] = useState<PlanetSelections>(initialSelections);
+  const [planetSeed, setPlanetSeed] = useState(741);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [planetName, setPlanetName] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
@@ -189,6 +190,7 @@ export default function Home() {
       atmosphere: randomInRange(world.atmosphere[0], world.atmosphere[1]),
       water: randomInRange(world.water[0], world.water[1]),
     });
+    setPlanetSeed(Math.floor(Math.random() * 2_147_483_646) + 1);
     setSaveStatus("");
   }
 
@@ -245,7 +247,7 @@ export default function Home() {
             <div className="stage-coordinate coordinate-top">41° 08′ N <span>•</span> 07° 26′ E</div>
             <div className="orbit orbit-outer" />
             <div className="orbit orbit-inner" />
-            <PlanetScene values={selections} reducedMotion={reducedMotion} />
+            <PlanetScene values={selections} reducedMotion={reducedMotion} seed={planetSeed} />
             <div className="planet-ring" />
             <div className="moon" />
             <span className="stage-star star-one">✳</span>
