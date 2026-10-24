@@ -1,0 +1,19 @@
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# .NET build files
+bin/
+obj/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and operating system files
+*.log
+.DS_Store
