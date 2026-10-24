@@ -27,8 +27,7 @@ type SavedPlanet = {
   water: number;
   createdAt: string;
 };
-
-const planetsApiUrl = "http://localhost:5269/api/planets";
+const planetsApiUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5269"}/api/planets`;
 
 const initialSelections: PlanetSelections = {
   temperature: 50,
